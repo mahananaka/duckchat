@@ -1,0 +1,9 @@
+# Add any directories, files, or patterns you don't want to be tracked by version control
+*
+!*.*
+!*/
+!Makefile
+### Above code ignores files without extensions except Makefile###
+*~
+*.o
+*.swp
