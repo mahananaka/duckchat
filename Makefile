@@ -1,7 +1,7 @@
 CC = gcc
 VAL = valgrind
-CFLAGS = -w -Wall -g
-OBJECTS = 
+CFLAGS = -w -Wall -g -Werror
+OBJECTS = raw.o
 
 all: client server
 
