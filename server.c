@@ -11,23 +11,22 @@
 #define MAX_NO_CHANNELS 64
 #define MAX_USERS_PER_CHANNEL 64
 
-typedef unsigned int uint;
-typedef struct request req;
-typedef struct request_login req_login;
-typedef struct request_logout req_logout;
-typedef struct request_join req_join;
-typedef struct request_leave req_leave;
-typedef struct request_say req_say;
-typedef struct request_list req_list;
-typedef struct request_who req_who;
-typedef struct request_keep_alive req_keep_alive;
-typedef struct text txt;
-typedef struct text_say txt_say;
-typedef struct channel_info ch_info;
-typedef struct text_list txt_list;
-typedef struct user_info userinfo;
-typedef struct text_who txt_who;
-typedef struct text_error txt_err;
+typedef struct request Req;
+typedef struct request_login ReqLogin;
+typedef struct request_logout ReqLogout;
+typedef struct request_join ReqJoin;
+typedef struct request_leave ReqLeave;
+typedef struct request_say ReqSay;
+typedef struct request_list ReqList;
+typedef struct request_who ReqWho;
+typedef struct request_keep_alive ReqKeepAlive;
+typedef struct text Txt;
+typedef struct text_say TxtSay;
+typedef struct channel_info ChInfo;
+typedef struct text_list TxtList;
+typedef struct user_info UserInfo;
+typedef struct text_who TxtWho;
+typedef struct text_error TxtErr;
 typedef struct sockaddr_in SockAddrIn;
 
 typedef struct _user {
@@ -71,47 +70,16 @@ void init_duckchat(){
         u_list.users[i].num_subs = 0;
 }
 
-void handle_request(req* r, SockAddrIn *requester){
-    
-    switch(r->req_type){
-        case REQ_LOGIN:
-            handle_login((req_login*)r,requester);
-            break;
-        case REQ_LOGOUT:
-            handle_logout((req_logout*)r);
-            break;
-        case REQ_JOIN:
-            handle_join((req_join*)r,requester);
-            break;
-        case REQ_LEAVE:
-            handle_leave((req_leave*)r);
-            break;
-        case REQ_SAY:
-            handle_say((req_say*)r);
-            break;
-        case REQ_LIST:
-            handle_list((req_list*)r);
-            break;
-        case REQ_WHO:
-            handle_who((req_who*)r);
-            break;
-        case REQ_KEEP_ALIVE:
-            handle_keep_alive((req_keep_alive*)r);
-            break;
-
-    }
-}
-
-void handle_login(req_login* rl,SockAddrIn* requester){
+void handle_login(ReqLogin* rl,SockAddrIn* requester){
     printf("New user requesting name: %s\n",rl->req_username);
 
     int i = u_list.num_users;
     strcpy(u_list.users[i].uname,rl->req_username);
-    memcpy(&(u_list.users[i].addr), requester,sizeof(SockAddrIn));
+    memcpy(&(u_list.users[i].addr), requester, sizeof(SockAddrIn));
     u_list.num_users++;
 }
 
-void handle_logout(req_logout* rl,SockAddrIn* requester){
+void handle_logout(ReqLogout* rl,SockAddrIn* requester){
     int uid = get_userid(requester);
 
     if(uid<0){
@@ -141,9 +109,9 @@ void handle_logout(req_logout* rl,SockAddrIn* requester){
     printf(" logs out\n");
 }
 
-void handle_join(req_join* rj, SockAddrIn* requester){
+void handle_join(ReqJoin* rj, SockAddrIn* requester){
     int uid = get_userid(requester);
-    int cid = get_chnlid(rj->req_channel);
+    int cid = get_cid(rj->req_channel);
 
     if(uid<0){
         //err
@@ -175,9 +143,9 @@ void handle_join(req_join* rj, SockAddrIn* requester){
     printf("%s joins %s\n",u_list.users[uid].uname, c_list.list[cid].cname);
 }
 
-void handle_leave(req_leave* rl, SockAddrIn* requester){
+void handle_leave(ReqLeave* rl, SockAddrIn* requester){
     int uid = get_userid(requester);
-    int cid = get_chnlid(rl->req_channel);
+    int cid = get_cid(rl->req_channel);
 
     printf("user %s left %s\n",u_list.users[uid].uname,rl->req_channel);
 
@@ -201,20 +169,68 @@ void handle_leave(req_leave* rl, SockAddrIn* requester){
     u->num_subs--;
 }
 
-void handle_say(req_say* rs){
-    printf("user says %s\nto %s\n",rs->req_text,rs->req_channel);
+void handle_say(ReqSay* rs, int uid, TxtSay** ts, int* len){
+    *len = sizeof(TxtSay);
+    *ts = (TxtSay*)malloc(*len);
+    (*ts)->txt_type = TXT_SAY;
+    strcpy((*ts)->txt_channel, rs->req_channel);
+    strcpy((*ts)->txt_username, u_list.users[uid].uname);
+    strcpy((*ts)->txt_text, rs->req_text);
 }
 
-void handle_list(req_list* rl){
-    printf("user requests a list\n");
+void handle_list(ReqList* rl, TxtList** tl, int* len){
+    int num_channels = c_list.num_channels;
+
+    *len = num_channels*CHANNEL_MAX+sizeof(TxtList);
+    *tl = (TxtList*)malloc(*len);
+    (*tl)->txt_type = TXT_LIST;
+    (*tl)->txt_nchannels = num_channels;
+
+    int i;
+    for(i=0;i<num_channels;i++){
+        strcpy((*tl)->txt_channels[i].ch_channel,c_list.list[i].cname);
+    }
 }
 
-void handle_who(req_who* rw){
+void handle_who(ReqWho* rw, TxtWho** tw, int* len){
     printf("user wants to know who is in channel %s\n", rw->req_channel);
+    int cid = get_cid(rw->req_channel);
+    Channel c = c_list.list[cid];
+    int num_subscribers = c.num_subers;
+    
+    *len = num_subscribers*USERNAME_MAX+sizeof(TxtWho);
+    *tw = (TxtWho*)malloc(*len);
+    (*tw)->txt_type = TXT_WHO;
+    (*tw)->txt_nusernames = num_subscribers;
+    strcpy((*tw)->txt_channel,c.cname);
+
+    int i;
+    for(i=0;i<num_subscribers;i++){
+        strcpy((*tw)->txt_users[i].us_username,u_list.users[c.subers[i]].uname);
+    }
 }
 
-void handle_keep_alive(req_keep_alive* rka){
+void handle_keep_alive(ReqKeepAlive* rka){
     printf("user doing keep alive\n");
+}
+
+int sendreply(int sock, SockAddrIn* to, char* msg, int len){
+    int ammount_sent = 0;
+
+    while(ammount_sent<len){
+        ammount_sent += sendto(sock, (msg+ammount_sent), len, 0, to, sizeof(*to));
+    }
+}
+
+int is_user_in_channel(int uid, int cid){
+    int i, num_subers = c_list.list[cid].num_subers;
+
+    for(i=0;i<num_subers;i++){
+        if(c_list.list[cid].subers[i] == uid)
+            return i;
+    }
+
+    return -1;
 }
 
 int rem_user_from_channel(int uid, int cid){
@@ -236,6 +252,10 @@ int rem_user_from_channel(int uid, int cid){
 
     //lower subscriber counter
     c->num_subers--;
+
+    if(c->num_subers ==0){
+        //have to remove channel
+    }
 }
 
 int get_userid(SockAddrIn *who){
@@ -253,7 +273,7 @@ int get_userid(SockAddrIn *who){
     return -1;
 }
 
-int get_chnlid(char *name){
+int get_cid(char *name){
     int i;
 
     //looking for the channel
@@ -265,6 +285,60 @@ int get_chnlid(char *name){
     return -1;
 }
 
+void handle_request(Req* r, int sock, SockAddrIn *to){
+    int uid, cid, i, n;
+    int len = 0;
+    void* reply;
+
+    switch(r->req_type){
+        case REQ_LOGIN:
+            handle_login((ReqLogin*)r, to);
+            break;
+        case REQ_LOGOUT:
+            handle_logout((ReqLogout*)r, to);
+            break;
+        case REQ_JOIN:
+            handle_join((ReqJoin*)r, to);
+            break;
+        case REQ_LEAVE:
+            handle_leave((ReqLeave*)r, to);
+            break;
+        case REQ_SAY:
+            uid = get_userid(to);
+            cid = get_cid(((ReqSay*)r)->req_channel);
+
+            if(cid < 0 || is_user_in_channel(uid,cid) < 0){
+                //handle error not in channel or channel doesn't exist
+            }
+
+            handle_say((ReqSay*)r, uid, &reply, &len);
+            n = c_list.list[cid].num_subers;
+            for(i=0;i<n;i++){
+                to = &(u_list.users[i].addr);
+                sendreply(sock,to,reply,len);
+            }
+            
+            break;
+        case REQ_LIST:
+            handle_list((ReqList*)r, &reply, &len);
+            sendreply(sock,to,reply,len);
+            sleep(0);
+            free(reply);
+            break;
+        case REQ_WHO:
+            handle_who((ReqWho*)r, &reply, &len);
+            sendreply(sock,to,reply,len);
+            sleep(0);
+            free(reply);
+            break;
+        case REQ_KEEP_ALIVE:
+            handle_keep_alive((ReqKeepAlive*)r);
+            break;
+        default:
+            ;//nothing
+            break;
+    }
+}
 
 void cleanup(void){
     if(sock)
@@ -275,14 +349,12 @@ int main(void)
 {
   int sock;
   SockAddrIn sa; 
-  char buffer[1024];
+  char buffer[2048];
   ssize_t recsize;
   socklen_t fromlen;
-  req *r;
 
   init_duckchat();
 
-  r = (req*)malloc(sizeof(req));
   memset(buffer, 0, sizeof(buffer));
 
   atexit(cleanup);
@@ -301,12 +373,13 @@ int main(void)
   }
 
   for (;;) {
+    printf("waiting for request...\n");
     recsize = recvfrom(sock, (void*)buffer, sizeof(buffer), 0, (struct sockaddr*)&sa, &fromlen);
     if (recsize < 0) {
       fprintf(stderr, "%s\n", strerror(errno));
       exit(EXIT_FAILURE);
     }
-    handle_request(buffer,&sa);
+    handle_request(buffer,sock,&sa);
   }
 
   return 0;
