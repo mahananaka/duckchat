@@ -1,15 +1,16 @@
 CC = gcc
 VAL = valgrind
 CFLAGS = -w -Wall -g -Werror
-OBJECTS = raw.o
+COBJECTS = raw.o
+SOBJECTS = duckchatserver.o
 
 all: client server
 
-client: $(OBJECTS) client.o
-	$(CC) -o $@ $(OBJECTS) client.o
+client: $(COBJECTS) client.o
+	$(CC) -o $@ $(COBJECTS) client.o
 
-server: $(OBJECTS) server.o
-	$(CC) -o $@ $(OBJECTS) server.o
+server: $(SOBJECTS) server.o
+	$(CC) -o $@ $(SOBJECTS) server.o
 
 clean:
 	rm -f *.o client server
