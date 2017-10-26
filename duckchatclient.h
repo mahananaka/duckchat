@@ -28,6 +28,12 @@ typedef struct sockaddr_in SockAddrIn;
 #define MAX_PORT 65535
 #define SERVERNAME_MAX 255
 #define MAX_NO_CHANNELS 64
+#define CMD_LOGOUT "/logout"
+#define CMD_LEAVE "/leave"
+#define CMD_JOIN "/join"
+#define CMD_LIST "/list"
+#define CMD_WHO "/who"
+#define CMD_SWITCH "/switch"
 
 extern char sname[SERVERNAME_MAX];
 extern char uname[USERNAME_MAX];
@@ -44,10 +50,18 @@ typedef struct _channel_list{
     Channel list[MAX_NO_CHANNELS];
 } ChannelList;
 
-void send_request(SockAddrIn* to, char* msg, int len);
 void request_login(ReqLogin* rl, SockAddrIn* to);
-void request_join(ReqJoin* rl, char* channel_name, SockAddrIn* to);
-void process_command(Req* r, char* input, SockAddrIn* to);
+void request_join(ReqJoin* rl, char* channel, SockAddrIn* to);
+void request_leave(ReqLeave* rl, char* channel, SockAddrIn* to);
+void request_list(ReqList* rl, SockAddrIn* to);
+void request_who(ReqWho* rw, char* channel, SockAddrIn* to);
+void request_logout(ReqLogout* rl, SockAddrIn* to);
 void request_say(ReqSay* rs, char* msg, char* channel, SockAddrIn* to);
+
+void send_request(SockAddrIn* to, char* msg, int len);
+void process_command(Req* r, char* input, SockAddrIn* to);
+void display_server_message(Txt* t);
+int get_nth_word(char* word, const char* input, int n);
+void chop_off_newline(char* str);
 
 #endif

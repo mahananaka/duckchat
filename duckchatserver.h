@@ -1,9 +1,6 @@
 #ifndef DUCKCHAT_SERVER_H
 #define DUCKCHAT_SERVER_H
 
-#define MAX_NO_CHANNELS 64
-#define MAX_USERS_PER_CHANNEL 64
-
 typedef struct request Req;
 typedef struct request_login ReqLogin;
 typedef struct request_logout ReqLogout;

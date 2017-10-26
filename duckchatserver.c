@@ -9,6 +9,9 @@
 #include "duckchat.h"
 #include "duckchatserver.h"
 
+#define MAX_NO_CHANNELS 4
+#define MAX_USERS_PER_CHANNEL 64
+
 /* NOTE: u_list, c_list, and sock are all declared externally in
  * duckchatserver.h and defined by a seperate source file. In this
  * case it is defined in server.c */
@@ -272,7 +275,7 @@ int rem_user_from_channel(int uid, int cid){
 }
 
 int get_userid(SockAddrIn *who){
-    int i, max_users = MAX_NO_CHANNELS*MAX_USERS_PER_CHANNEL;
+    int i, max_users = u_list.num_users;
     in_port_t portkey = who->sin_port;
     uint32_t addrkey = who->sin_addr.s_addr;
     

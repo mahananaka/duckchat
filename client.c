@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/mman.h>
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -8,6 +9,7 @@
 #include <stdio.h>
 #include <termios.h>
 #include <signal.h>
+#include <sys/poll.h>
 #include "raw.h"
 #include "duckchat.h"
 #include "duckchatclient.h"
@@ -16,7 +18,7 @@
 #define DEFAULT_CHANNEL "Common"
 
 /* some global variables */
-char input[OUT_BUFFER_SIZE];
+//char in_buff[OUT_BUFFER_SIZE];
 char sname[SERVERNAME_MAX], uname[USERNAME_MAX], achannel[CHANNEL_MAX];
 int port_num = 0;
 int sock = 0;
@@ -62,12 +64,11 @@ int parse_args(int argc, char** argv){
 }
 
 void get_input(char* store){
-    printf(">");
-    fflush(stdout);
     char* c = store;
     while (read(STDIN_FILENO, c, 1) == 1 && *c != '\n') {
         write(STDOUT_FILENO, c, 1);
         c++;
+        *c = '\0';
     }
     write(STDOUT_FILENO,c,1);
     c++;
@@ -76,8 +77,10 @@ void get_input(char* store){
 
 
 void interpret_userinput(char* input, void* request, SockAddrIn* to){
-    if(strlen(input)<1)
+    if((strlen(input))<1) //subtract one cause we capture the newline as well
         return;
+
+    chop_off_newline(input);
 
     switch(*input){
         case '/':
@@ -127,35 +130,65 @@ int main (int argc, char** argv){
         exit(EXIT_FAILURE);
     }
 
+    char * out_buff = mmap(NULL, OUT_BUFFER_SIZE, PROT_READ | PROT_WRITE, 
+                    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    
+    request_login((ReqLogin*)request, &to);
+    
+    request_join((ReqJoin*)request, DEFAULT_CHANNEL, &to);
+    strcpy(achannel,DEFAULT_CHANNEL);
+    
+    raw_mode();
+
+    printf(">");
+    fflush(stdout);
+
     pid = fork();
 
     if(pid==0){
-        request_login((ReqLogin*)request, &to);
-    
-        request_join((ReqJoin*)request, DEFAULT_CHANNEL, &to);
-        strcpy(achannel,DEFAULT_CHANNEL);
-    
-        raw_mode();
+        //child process gets user input from the terminal
         while(keep_running>0){
-            get_input(input);
-            interpret_userinput(input, request, &to);
+            get_input(out_buff);
+            interpret_userinput(out_buff, request, &to);
+            *out_buff = '\0';
         }
     }
     else
     {
-        while(keep_running>0){
-            recsize = recvfrom(sock,(void*)rcv_buff,sizeof(rcv_buff),0,&to,&fromlen);
-            if(recsize<0){
-                fprintf(stderr,"%s\n", strerror(errno));
-                kill(pid,SIGTERM);
-                exit(EXIT_FAILURE);
-            }
+        //parent process polls the socket looking for available data
+        struct pollfd pollsock;
+        pollsock.fd = sock;
+        pollsock.events = POLLIN;
+        int rv;
 
-            TxtSay* ts = (TxtSay*)rcv_buff;
-            if(ts->txt_type == TXT_SAY){
-                printf("[%s][%s]%s",ts->txt_channel,ts->txt_username,ts->txt_text);
+        while(keep_running>0){
+            rv = poll(&pollsock,1,500); //poll set to giveup after 1/2 a second
+            if(rv==-1){
+                //error
+            } else if(rv ==0){
+                // no data available
+            } else {
+                // something waiting to be processed
+                recsize = recvfrom(sock,(void*)rcv_buff,sizeof(rcv_buff),0,&to,&fromlen);
+                if(recsize<0){
+                    fprintf(stderr,"%s\n", strerror(errno));
+                    kill(pid,SIGTERM); //terminate child if problems occur
+                    exit(EXIT_FAILURE);
+                }
+
+                //clear the terminal prompt, what is there is stored in out_buff
+                int i, len = strlen(out_buff);
+                for(i=len;i>=0;i--)
+                    printf("\b");
+
+                display_server_message((Txt*)rcv_buff);
+
+                //reprint what the user had already typed
+                printf(">%s",out_buff);
+                fflush(stdout);
             }
         }
+        munmap(out_buff, OUT_BUFFER_SIZE);
     }
     return 0;
 }
