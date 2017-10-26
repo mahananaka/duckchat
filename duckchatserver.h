@@ -1,12 +1,5 @@
-#include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
-#include <unistd.h> /* for close() for socket */ 
-#include <stdlib.h>
-#include "duckchat.h"
+#ifndef DUCKCHAT_SERVER_H
+#define DUCKCHAT_SERVER_H
 
 #define MAX_NO_CHANNELS 64
 #define MAX_USERS_PER_CHANNEL 64
@@ -75,3 +68,5 @@ int is_user_in_channel(int uid, int cid);
 int rem_user_from_channel(int uid, int cid);
 int get_userid(SockAddrIn *who);
 int get_cid(char *name);
+
+#endif

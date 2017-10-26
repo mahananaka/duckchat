@@ -6,35 +6,28 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <termios.h>
+#include <signal.h>
+#include "raw.h"
 #include "duckchat.h"
+#include "duckchatclient.h"
 
-#define BUFF_SIZE 2048
 #define REQ_ARG_COUNT 4
-#define USERNAME_MAX 32
-#define CHANNEL_MAX 32
-#define SAY_MAX 64
-#define MAX_PORT 65535
-#define SERVERNAME_MAX 255
+#define DEFAULT_CHANNEL "Common"
 
-typedef struct request req;
-typedef struct request_login req_login;
-typedef struct request_logout req_logout;
-typedef struct request_join req_join;
-typedef struct request_leave req_leave;
-typedef struct request_say req_say;
-typedef struct request_list req_list;
-typedef struct request_who req_who;
-typedef struct request_keep_alive req_keep_alive;
-
+/* some global variables */
+char input[OUT_BUFFER_SIZE];
 char sname[SERVERNAME_MAX], uname[USERNAME_MAX], achannel[CHANNEL_MAX];
 int port_num = 0;
+int sock = 0;
+void* request;
 
 int parse_args(int argc, char** argv){
     int i, port;
 
     if(argc<REQ_ARG_COUNT){
         printf("ERR: Missing arguments\nUSAGE: ./client hostname port username\n");
-        return 1;
+        return -1;
     }
 
     for(i=0;i<argc;i++){
@@ -53,14 +46,14 @@ int parse_args(int argc, char** argv){
                 break;
             case 3:
                 if(strlen(argv[i])>USERNAME_MAX){
-                    printf("ERR: Username can't be more than %d bytes\n",USERNAME_MAX);
+                    printf("ERR: Username can't be more than %d characters\n",USERNAME_MAX);
                     return -1;   
                 }
                 else
                     strcpy(uname,argv[i]);
                 break;
             default:
-                // do nothing
+                ;   // do nothing
                 break;
         }
     }
@@ -68,62 +61,101 @@ int parse_args(int argc, char** argv){
     return 0; //no errors
 }
 
-void write_login(req_login* rl){
-    rl->req_type = htonl(REQ_LOGIN);
-    strcpy(rl->req_username,uname);
+void get_input(char* store){
+    printf(">");
+    fflush(stdout);
+    char* c = store;
+    while (read(STDIN_FILENO, c, 1) == 1 && *c != '\n') {
+        write(STDOUT_FILENO, c, 1);
+        c++;
+    }
+    write(STDOUT_FILENO,c,1);
+    c++;
+    *c = '\0';
 }
 
 
+void interpret_userinput(char* input, void* request, SockAddrIn* to){
+    if(strlen(input)<1)
+        return;
+
+    switch(*input){
+        case '/':
+            process_command(request,input,to);
+            break;
+        default:
+            request_say(request,input,achannel,to);
+            break;
+    }
+}
+
+void run_on_exit(){
+        cooked_mode();
+        free(request);
+}
+
 int main (int argc, char** argv){
-    struct sockaddr_in sa;
-    int bytes_sent;
-    char rbuffer[BUFF_SIZE];
+    SockAddrIn to;
+    char rcv_buff[IN_BUFFER_SIZE];
+    int bytes_sent, keep_running=1;
     ssize_t recsize;
     socklen_t fromlen;
+    pid_t pid;
 
-    int sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    void* request = malloc(sizeof(req_say)*2);
-    
+    sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);    
     if(sock == -1){
         printf("Error Creating Socket");
         exit(EXIT_FAILURE);
     }
 
-    if(parse_args(argc,argv)){
+    if(parse_args(argc,argv)<0){
         exit(EXIT_FAILURE);
     }
 
+    /* setup the socket address for the desired connection */
     printf("server: %s\nport: %d\nusername: %s\n",sname,port_num,uname);
-    
 
-    memset(&sa, 0, sizeof(sa));                     //zero out socket address
-    sa.sin_family = AF_INET;                        //use ipv4
-    sa.sin_addr.s_addr = inet_addr(sname);          //set servername
-    sa.sin_port = htons(port_num);                  //set port
-  
-    write_login((req_login*)request);
-    bytes_sent = sendto(sock, request, sizeof(req_login), 0, (struct sockaddr*)&sa, sizeof(sa));
+    memset(&to, 0, sizeof(to));                     //zero out socket address
+    to.sin_family = AF_INET;                        //use ipv4
+    to.sin_addr.s_addr = inet_addr(sname);          //set servername
+    to.sin_port = htons(port_num);                  //set port
+    /* finished setup */
 
-    if(bytes_sent < 0){
-        printf("Error sending packet: %s\n", strerror(errno));
+    request = malloc(sizeof(ReqSay));     //ReqSay is the largest request we can make.
+    if(!request){
+        printf("ERR: couldn't malloc enough memory.\n");
         exit(EXIT_FAILURE);
+    }
+
+    pid = fork();
+
+    if(pid==0){
+        request_login((ReqLogin*)request, &to);
+    
+        request_join((ReqJoin*)request, DEFAULT_CHANNEL, &to);
+        strcpy(achannel,DEFAULT_CHANNEL);
+    
+        raw_mode();
+        while(keep_running>0){
+            get_input(input);
+            interpret_userinput(input, request, &to);
+        }
     }
     else
-        printf("Sent\n");
+    {
+        while(keep_running>0){
+            recsize = recvfrom(sock,(void*)rcv_buff,sizeof(rcv_buff),0,&to,&fromlen);
+            if(recsize<0){
+                fprintf(stderr,"%s\n", strerror(errno));
+                kill(pid,SIGTERM);
+                exit(EXIT_FAILURE);
+            }
 
-    /*
-    recsize = recvfrom(sock, (void *)rbuffer, sizeof(rbuffer), 0, (struct sockaddr*)&sa, &fromlen);
-
-    if(recsize < 0){
-        printf("%s\n", strerror(errno));
-        exit(EXIT_FAILURE);
+            TxtSay* ts = (TxtSay*)rcv_buff;
+            if(ts->txt_type == TXT_SAY){
+                printf("[%s][%s]%s",ts->txt_channel,ts->txt_username,ts->txt_text);
+            }
+        }
     }
-
-    printf("recsize: %d\n ", (int)recsize);
-    sleep(1);
-    printf("datagram: %.*s\n",(int)recsize, rbuffer);
-    */
-    
-    close(sock); //close the socket
     return 0;
 }

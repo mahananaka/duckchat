@@ -1,7 +1,7 @@
 CC = gcc
 VAL = valgrind
 CFLAGS = -w -Wall -g -Werror
-COBJECTS = raw.o
+COBJECTS = raw.o duckchatclient.o
 SOBJECTS = duckchatserver.o
 
 all: client server
