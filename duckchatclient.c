@@ -22,16 +22,25 @@ void request_join(ReqJoin* rj, char *channel, SockAddrIn* to){
     if(len<1)
         return;
 
-    if(len<=CHANNEL_MAX){
-        rj->req_type = REQ_JOIN;
-        strcpy(rj->req_channel,channel);
-        send_request(to, rj, sizeof(ReqJoin));
-
-        strcpy(achannel,channel);
-    }
-    else{
+    if(len>CHANNEL_MAX)
         printf("ERR: channel name too long.\n");
+
+    int i,n = ch_list.num_channels;
+    for(i=0;i<n;i++){
+        if(strcmp(ch_list.list[i].cname,channel)==0){
+            printf("You are already subscribed to channel \"%s\".\n",channel);
+            switch_achannel(channel);
+            return;
+        }
     }
+
+    rj->req_type = REQ_JOIN;
+    strcpy(rj->req_channel,channel);
+    send_request(to, rj, sizeof(ReqJoin));
+
+    strcpy(ch_list.list[n].cname,channel);
+    ch_list.num_channels++;
+    switch_achannel(channel);
 }
 
 void request_leave(ReqLeave* rl, char* channel, SockAddrIn* to){
@@ -41,12 +50,22 @@ void request_leave(ReqLeave* rl, char* channel, SockAddrIn* to){
         return;
 
     if(len>CHANNEL_MAX){
-
+        printf("Channel's are max %d characters long.\n",CHANNEL_MAX);
+        return;
     }
 
-    rl->req_type = REQ_LEAVE;
-    strcpy(rl->req_channel,channel);
-    send_request(to,rl,sizeof(ReqLeave));
+    int i,n = ch_list.num_channels;
+    for(i=0;i<n;i++){
+        if(strcmp(ch_list.list[i].cname,channel)==0){
+            rl->req_type = REQ_LEAVE;
+            strcpy(rl->req_channel,channel);
+            send_request(to,rl,sizeof(ReqLeave));
+            remove_channel(i);
+            return;
+        }
+    }
+    
+    printf("You can't leave a channel you're not subscribed to. No request sent to server.\n");
 }
 
 void request_list(ReqList* rl, SockAddrIn* to){
@@ -82,6 +101,11 @@ void request_say(ReqSay* rs, char* msg, char*channel, SockAddrIn* to){
         printf("Err: messages are limited to %d characters.\n",SAY_MAX);
         return;
     }
+
+    if(strlen(achannel)==0){
+        printf("You are not in a channel. Join one before speaking.\n");
+        return;
+    }
     
     rs->req_type = REQ_SAY;
     strcpy(rs->req_channel,channel);
@@ -91,7 +115,44 @@ void request_say(ReqSay* rs, char* msg, char*channel, SockAddrIn* to){
 }
 
 void switch_achannel(char* new){
-    strcpy(achannel,new); //change active channel
+    int i, n=ch_list.num_channels;
+
+    for(i=0;i<n;i++){
+        if(strcmp(ch_list.list[i].cname,new)==0){
+            strcpy(achannel,new);
+            printf("Active channel set to %s.\n",new);
+            return;
+        }
+    }
+
+    printf("Can't switch to a channel you are not subscribed to.\n");
+}
+
+void remove_channel(int cid){
+    int i, rem_active_channel=0, n=ch_list.num_channels;
+
+    if(strcmp(achannel,ch_list.list[cid].cname)==0){
+        rem_active_channel=1;
+    }
+
+    for(i=cid;i<n;i++){
+        if(i<n-1){
+            ch_list.list[i] = ch_list.list[i+1];
+        }
+    }
+
+    ch_list.num_channels--;
+
+    if(rem_active_channel){
+        if(ch_list.num_channels>0){
+            strcpy(achannel,ch_list.list[0].cname);
+            printf("Active channel set to %s.\n");
+        }
+        else{
+            strcpy(achannel,"");
+            printf("You are not in any channels, join one so you can speak.\n");
+        }
+    }
 }
 
 void send_request(SockAddrIn* to, char* msg, int len){
@@ -133,7 +194,6 @@ void process_command(Req* r, char *input, SockAddrIn* to){
     }
     else if(strncmp(word,CMD_JOIN,len)==0){
         request_join((ReqJoin*)r,input+len+1,to);
-        switch_achannel(input+len+1); //change active channel
     }
     else if(strncmp(word,CMD_LEAVE,len)==0){
         request_leave((ReqLeave*)r,input+len+1,to);
