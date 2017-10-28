@@ -94,6 +94,7 @@ int main(void)
   }
 
   //main program loop
+  printf("Server started, waiting for requests.\n");
   for (;;) {
     recsize = recvfrom(sock, (void*)buffer, sizeof(buffer), 0, (struct sockaddr*)&sa, &fromlen);
     if (recsize < 0) {
