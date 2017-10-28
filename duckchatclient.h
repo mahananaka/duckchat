@@ -1,6 +1,8 @@
 #ifndef DUCKCHAT_CLIENT_H
 #define DUCKCHAT_CLIENT_H
 
+#include "duckchat.h"
+
 typedef struct request Req;
 typedef struct request_login ReqLogin;
 typedef struct request_logout ReqLogout;
@@ -21,10 +23,6 @@ typedef struct sockaddr_in SockAddrIn;
 
 #define IN_BUFFER_SIZE 2048
 #define OUT_BUFFER_SIZE 128
-#define REQ_ARG_COUNT 4
-#define USERNAME_MAX 32
-#define CHANNEL_MAX 32
-#define SAY_MAX 64
 #define MAX_PORT 65535
 #define SERVERNAME_MAX 255
 #define MAX_NO_CHANNELS 64
@@ -35,12 +33,6 @@ typedef struct sockaddr_in SockAddrIn;
 #define CMD_WHO "/who"
 #define CMD_SWITCH "/switch"
 
-extern char sname[SERVERNAME_MAX];
-extern char uname[USERNAME_MAX];
-extern char achannel[CHANNEL_MAX];
-extern int port_num;
-extern int sock;
-
 typedef struct _channel {
     char cname[CHANNEL_MAX+1];
 } Channel;
@@ -49,6 +41,14 @@ typedef struct _channel_list{
     int num_channels;
     Channel list[MAX_NO_CHANNELS];
 } ChannelList;
+
+extern char sname[SERVERNAME_MAX];
+extern char uname[USERNAME_MAX];
+extern char achannel[CHANNEL_MAX];
+extern ChannelList ch_list;
+extern int port_num;
+extern int sock;
+extern int keep_running;
 
 void request_login(ReqLogin* rl, SockAddrIn* to);
 void request_join(ReqJoin* rl, char* channel, SockAddrIn* to);

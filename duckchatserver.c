@@ -9,9 +9,6 @@
 #include "duckchat.h"
 #include "duckchatserver.h"
 
-#define MAX_NO_CHANNELS 4
-#define MAX_USERS_PER_CHANNEL 64
-
 /* NOTE: u_list, c_list, and sock are all declared externally in
  * duckchatserver.h and defined by a seperate source file. In this
  * case it is defined in server.c */
@@ -30,7 +27,7 @@ void handle_login(ReqLogin* rl, SockAddrIn* requester){
     memcpy(&(u_list.users[uid].addr), requester, sizeof(SockAddrIn));
     u_list.num_users++;
 
-    printf("Login by %s\n",u_list.users[uid].uname);
+    printf("request: login by %s\n",u_list.users[uid].uname);
 }
 
 void handle_logout(ReqLogout* rl, SockAddrIn* requester){
@@ -42,7 +39,7 @@ void handle_logout(ReqLogout* rl, SockAddrIn* requester){
         return;
     }
 
-    printf("Logout by %s\n",u_list.users[uid].uname);
+    printf("request: logout by %s\n",u_list.users[uid].uname);
 
     //remove user from each of the channels.
     int i, num = u_list.users[uid].num_subs;
@@ -82,19 +79,21 @@ void handle_join(ReqJoin* rj, SockAddrIn* requester){
         strcpy(c_list.list[cid].cname,rj->req_channel);
         c_list.num_channels++;
     }
-    
-    //add them to channel
-    Channel *c = &(c_list.list[cid]);
-    int subid = c->num_subers;
-    c->subers[subid] = uid;
-    c->num_subers++;
 
-    //add this channel to there subscription list
-    int i = u_list.users[uid].num_subs;
-    u_list.users[uid].subbed_channels[i] = cid;
-    u_list.users[uid].num_subs++;
+    if(!is_double_join(uid,cid)){    
+        //add them to channel
+        Channel *c = &(c_list.list[cid]);
+        int subid = c->num_subers;
+        c->subers[subid] = uid;
+        c->num_subers++;
 
-    printf("%s joins %s\n",u_list.users[uid].uname, c_list.list[cid].cname);
+        //add this channel to there subscription list
+        int i = u_list.users[uid].num_subs;
+        u_list.users[uid].subbed_channels[i] = cid;
+        u_list.users[uid].num_subs++;
+    }
+
+    printf("request: %s joins %s\n",u_list.users[uid].uname, c_list.list[cid].cname);
 }
 
 void handle_leave(ReqLeave* rl, SockAddrIn* requester){
@@ -127,7 +126,7 @@ void handle_leave(ReqLeave* rl, SockAddrIn* requester){
 
     //now lower subscribed count
     u->num_subs--;
-    printf("user %s left %s\n",u_list.users[uid].uname,rl->req_channel);
+    printf("request: %s left %s\n",u_list.users[uid].uname,rl->req_channel);
 }
 
 void handle_say(ReqSay* rs, SockAddrIn* requester){
@@ -154,17 +153,25 @@ void handle_say(ReqSay* rs, SockAddrIn* requester){
     strcpy(ts->txt_text, rs->req_text);
 
     SockAddrIn* to;
-    int i, n = c_list.list[cid].num_subers;
+    int i, to_id, n = c_list.list[cid].num_subers;
     for(i=0;i<n;i++){
-        to = &(u_list.users[i].addr);
+        to_id = c_list.list[cid].subers[i];
+        to = &(u_list.users[to_id].addr);
         sendreply(to,ts,len);
     }
+
+    printf("request: %s speaks in %s\n", ts->txt_username, ts->txt_channel);
 
     free(ts);
 }
 
 void handle_list(ReqList* rl, SockAddrIn* to){
     int num_channels = c_list.num_channels;
+    int uid = get_userid(to);
+
+    if(uid < 0){
+        return handle_error("Err: you must login before other requests.", to);
+    }
 
     int len = num_channels*CHANNEL_MAX+sizeof(TxtList);
     TxtList* tl = (TxtList*)malloc(len);
@@ -177,9 +184,17 @@ void handle_list(ReqList* rl, SockAddrIn* to){
     }
 
     sendreply(to,tl,len);
+    printf("request: %s lists channels.\n",u_list.users[uid].uname);
+    free(tl);
 }
 
 void handle_who(ReqWho* rw, SockAddrIn* to){
+    int uid = get_userid(to);
+
+    if(uid < 0){
+        return handle_error("Err: you must login before other requests.", to);
+    }
+
     if(strlen(rw->req_channel)>CHANNEL_MAX){
         return handle_error("ERR: Channel name exceeds max length.", to);
     }
@@ -205,6 +220,7 @@ void handle_who(ReqWho* rw, SockAddrIn* to){
     }
 
     sendreply(to,tw,len);
+    printf("request: %s lists users in %s.\n",u_list.users[uid].uname, tw->txt_channel);
     free(tw);
 }
 
@@ -216,18 +232,36 @@ void handle_error(char* msg, SockAddrIn* to){
     strcpy(te->txt_error,msg);
 
     sendreply(to,te,len);
+    printf("request: error reply \"%s\"\n",msg);
     free(te);
 }
 
 void handle_keep_alive(ReqKeepAlive* rka){
-    printf("user doing keep alive\n");
+    printf("keep_alive not implemented.\n");
+}
+
+int is_double_join(int uid, int cid){
+    Channel *c = &(c_list.list[cid]);
+    int i, n = c->num_subers;
+
+
+    for(i=0;i<n;i++){
+        if(c->subers[i] == uid)
+            return 1;
+    }
+
+    return 0;
 }
 
 int sendreply(SockAddrIn* to, char* msg, int len){
     int ammount_sent = 0;
 
-    while(ammount_sent<len){
+    while(ammount_sent<len && ammount_sent >= 0){
         ammount_sent += sendto(sock, (msg+ammount_sent), len, 0, to, sizeof(*to));
+    }
+
+    if(ammount_sent<0){
+        printf("Err: %s\n", strerror(errno));
     }
 }
 

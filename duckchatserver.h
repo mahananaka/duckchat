@@ -19,6 +19,9 @@ typedef struct text_who TxtWho;
 typedef struct text_error TxtErr;
 typedef struct sockaddr_in SockAddrIn;
 
+#define MAX_NO_CHANNELS 4
+#define MAX_USERS_PER_CHANNEL 64
+
 typedef struct _user {
     char uname[USERNAME_MAX+1];
     SockAddrIn addr;
@@ -61,6 +64,7 @@ void handle_keep_alive(ReqKeepAlive* rka);
 int sendreply(SockAddrIn* to, char* msg, int len);
 
 /* helper functions */
+int is_double_join(int uid, int cid);
 int is_user_in_channel(int uid, int cid);
 int rem_user_from_channel(int uid, int cid);
 int get_userid(SockAddrIn *who);

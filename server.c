@@ -95,7 +95,6 @@ int main(void)
 
   //main program loop
   for (;;) {
-    printf("waiting for request...\n");
     recsize = recvfrom(sock, (void*)buffer, sizeof(buffer), 0, (struct sockaddr*)&sa, &fromlen);
     if (recsize < 0) {
       fprintf(stderr, "%s\n", strerror(errno));

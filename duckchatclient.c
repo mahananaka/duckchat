@@ -9,14 +9,6 @@
 #include "duckchat.h"
 #include "duckchatclient.h"
 
-send_request(SockAddrIn*  to, char* msg, int len){
-    int ammount_sent=0;
-
-    while(ammount_sent<len){
-        ammount_sent += sendto(sock, (msg+ammount_sent), len, 0, to, sizeof(*to));
-    }
-}
-
 void request_login(ReqLogin* rl, SockAddrIn* to){
     rl->req_type = REQ_LOGIN;
     strcpy(rl->req_username,uname);
@@ -35,7 +27,7 @@ void request_join(ReqJoin* rj, char *channel, SockAddrIn* to){
         strcpy(rj->req_channel,channel);
         send_request(to, rj, sizeof(ReqJoin));
 
-        
+        strcpy(achannel,channel);
     }
     else{
         printf("ERR: channel name too long.\n");
@@ -81,6 +73,7 @@ void request_who(ReqWho* rw, char* channel, SockAddrIn* to){
 void request_logout(ReqLogout* rl, SockAddrIn* to){
     rl->req_type = REQ_LOGOUT;
     send_request(to,rl,sizeof(ReqLogout));
+    keep_running = 0;
 }
 
 void request_say(ReqSay* rs, char* msg, char*channel, SockAddrIn* to){
@@ -99,6 +92,18 @@ void request_say(ReqSay* rs, char* msg, char*channel, SockAddrIn* to){
 
 void switch_achannel(char* new){
     strcpy(achannel,new); //change active channel
+}
+
+void send_request(SockAddrIn* to, char* msg, int len){
+    int ammount_sent = 0;
+
+    while(ammount_sent<len && ammount_sent >= 0){
+        ammount_sent += sendto(sock, (msg+ammount_sent), len, 0, to, sizeof(*to));
+    }
+
+    if(ammount_sent<0){
+        printf("Err: sending request - %s\n", strerror(errno));
+    }
 }
 
 void chop_off_newline(char* str){
@@ -124,7 +129,7 @@ void process_command(Req* r, char *input, SockAddrIn* to){
     int len = get_nth_word(word,input,1);
 
     if(strncmp(word,CMD_SWITCH,len)==0){
-        
+        switch_achannel(input+len+1);
     }
     else if(strncmp(word,CMD_JOIN,len)==0){
         request_join((ReqJoin*)r,input+len+1,to);
@@ -144,6 +149,7 @@ void process_command(Req* r, char *input, SockAddrIn* to){
     }
     else{
         //invalid command do nothing
+        printf("Unrecognized command, no action taken.\n");
     }
 }
 
