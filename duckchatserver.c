@@ -14,7 +14,7 @@
  * case it is defined in server.c */
 
 void handle_login(ReqLogin* rl, SockAddrIn* requester){
-    if(get_userid(requester)>=0){
+    if(get_user_index(requester)>=0){
         return handle_error("ERR: Already logged in.",requester);
     }
 
@@ -22,46 +22,46 @@ void handle_login(ReqLogin* rl, SockAddrIn* requester){
         return handle_error("ERR: Server is at max user capacity.",requester);
     }
 
-    int uid = u_list.num_users;
-    strcpy(u_list.users[uid].uname,rl->req_username);
-    memcpy(&(u_list.users[uid].addr), requester, sizeof(SockAddrIn));
+    int i = u_list.num_users;
+    strcpy(u_list.users[i].uname,rl->req_username);
+    memcpy(&(u_list.users[i].addr), requester, sizeof(SockAddrIn));
     u_list.num_users++;
 
-    printf("request: login by %s\n",u_list.users[uid].uname);
+    printf("request: login by %s\n",u_list.users[i].uname);
 }
 
 void handle_logout(ReqLogout* rl, SockAddrIn* requester){
-    int uid = get_userid(requester);
+    int ind = get_user_index(requester);
 
-    if(uid<0){
+    if(ind<0){
         //user not logged in
         handle_error("ERR: No record of your login.",requester);
         return;
     }
 
-    printf("request: logout by %s\n",u_list.users[uid].uname);
+    printf("request: logout by %s\n",u_list.users[ind].uname);
 
     //remove user from each of the channels.
-    int i, num = u_list.users[uid].num_subs;
+    int i, num = u_list.users[ind].num_subs;
     for(i=0;i<num;i++){
-        rem_user_from_channel(uid, u_list.users[uid].subbed_channels[i]);
+        rem_user_from_channel(requester, u_list.users[ind].subbed_channels[i]);
     }
 
     //remove user from u_list
     num = u_list.num_users;
-    for(i=uid;i<num;i++){
+    for(i=ind;i<num;i++){
         if(i<num-1){
-            u_list.users[uid] = u_list.users[uid+1];
+            u_list.users[i] = u_list.users[i+1];
         }
     }
     u_list.num_users--;
 }
 
 void handle_join(ReqJoin* rj, SockAddrIn* requester){
-    int uid = get_userid(requester);
+    int ind = get_user_index(requester);
     int cid = get_cid(rj->req_channel);
 
-    if(uid<0){
+    if(ind<0){
         return handle_error("ERR: No record of your login.", requester);
     }
 
@@ -77,27 +77,28 @@ void handle_join(ReqJoin* rj, SockAddrIn* requester){
         }
         
         strcpy(c_list.list[cid].cname,rj->req_channel);
+        c_list.list[cid].num_subers = 0;
         c_list.num_channels++;
     }
 
-    if(!is_double_join(uid,cid)){    
+    if(!is_double_join(ind,cid)){    
         //add them to channel
         Channel *c = &(c_list.list[cid]);
         int subid = c->num_subers;
-        c->subers[subid] = uid;
+        memcpy(&(c->subers[subid]),requester,sizeof(SockAddrIn));
         c->num_subers++;
 
         //add this channel to there subscription list
-        int i = u_list.users[uid].num_subs;
-        u_list.users[uid].subbed_channels[i] = cid;
-        u_list.users[uid].num_subs++;
+        int i = u_list.users[ind].num_subs;
+        u_list.users[ind].subbed_channels[i] = cid;
+        u_list.users[ind].num_subs++;
     }
 
-    printf("request: %s joins %s\n",u_list.users[uid].uname, c_list.list[cid].cname);
+    printf("request: %s joins %s\n",u_list.users[ind].uname, c_list.list[cid].cname);
 }
 
 void handle_leave(ReqLeave* rl, SockAddrIn* requester){
-    int uid = get_userid(requester);
+    int uid = get_user_index(requester);
     int cid = get_cid(rl->req_channel);
 
     if(uid<0){
@@ -109,7 +110,7 @@ void handle_leave(ReqLeave* rl, SockAddrIn* requester){
     }
 
     //remove the user from the channel
-    rem_user_from_channel(uid,cid);
+    rem_user_from_channel(requester,cid);
 
     //also remove channel from the user
     User *u = &(u_list.users[uid]);
@@ -130,7 +131,7 @@ void handle_leave(ReqLeave* rl, SockAddrIn* requester){
 }
 
 void handle_say(ReqSay* rs, SockAddrIn* requester){
-    int uid = get_userid(requester);
+    int uid = get_user_index(requester);
     int cid = get_cid(rs->req_channel);
 
     if(uid<0){
@@ -141,7 +142,7 @@ void handle_say(ReqSay* rs, SockAddrIn* requester){
         return handle_error("ERR: No such channel.", requester);
     }
     
-    if(is_user_in_channel(uid,cid) < 0){
+    if(is_user_in_channel(requester,cid) < 0){
         return handle_error("ERR: You must be in a channel to talk there.", requester);
     }
 
@@ -153,10 +154,9 @@ void handle_say(ReqSay* rs, SockAddrIn* requester){
     strcpy(ts->txt_text, rs->req_text);
 
     SockAddrIn* to;
-    int i, to_id, n = c_list.list[cid].num_subers;
+    int i, n = c_list.list[cid].num_subers;
     for(i=0;i<n;i++){
-        to_id = c_list.list[cid].subers[i];
-        to = &(u_list.users[to_id].addr);
+        to = &(c_list.list[cid].subers[i]);
         sendreply(to,ts,len);
     }
 
@@ -167,7 +167,7 @@ void handle_say(ReqSay* rs, SockAddrIn* requester){
 
 void handle_list(ReqList* rl, SockAddrIn* to){
     int num_channels = c_list.num_channels;
-    int uid = get_userid(to);
+    int uid = get_user_index(to);
 
     if(uid < 0){
         return handle_error("Err: you must login before other requests.", to);
@@ -189,9 +189,9 @@ void handle_list(ReqList* rl, SockAddrIn* to){
 }
 
 void handle_who(ReqWho* rw, SockAddrIn* to){
-    int uid = get_userid(to);
+    int ind = get_user_index(to);
 
-    if(uid < 0){
+    if(ind < 0){
         return handle_error("Err: you must login before other requests.", to);
     }
 
@@ -206,7 +206,7 @@ void handle_who(ReqWho* rw, SockAddrIn* to){
     }
 
     Channel c = c_list.list[cid];
-    int num_subscribers = c.num_subers;
+    int num_subscribers = c.num_subers,num_users = u_list.num_users;
     
     int len = num_subscribers*USERNAME_MAX+sizeof(TxtWho);
     TxtWho* tw = (TxtWho*)malloc(len);
@@ -214,13 +214,18 @@ void handle_who(ReqWho* rw, SockAddrIn* to){
     tw->txt_nusernames = num_subscribers;
     strcpy(tw->txt_channel,c.cname);
 
-    int i;
+    int i,j;
     for(i=0;i<num_subscribers;i++){
-        strcpy(tw->txt_users[i].us_username,u_list.users[c.subers[i]].uname);
+        for(j=0;j<num_users;j++){
+            if(memcmp(&c.subers[i],&u_list.users[j].addr,sizeof(SockAddrIn))==0){
+                strcpy(tw->txt_users[i].us_username,u_list.users[j].uname);
+                break;
+            }
+        }
     }
 
     sendreply(to,tw,len);
-    printf("request: %s lists users in %s.\n",u_list.users[uid].uname, tw->txt_channel);
+    printf("request: %s lists users in %s.\n",u_list.users[ind].uname, tw->txt_channel);
     free(tw);
 }
 
@@ -246,7 +251,7 @@ int is_double_join(int uid, int cid){
 
 
     for(i=0;i<n;i++){
-        if(c->subers[i] == uid)
+        if(memcmp(&c->subers[i],&u_list.users[uid].addr,sizeof(SockAddrIn))==0)
             return 1;
     }
 
@@ -265,18 +270,18 @@ int sendreply(SockAddrIn* to, char* msg, int len){
     }
 }
 
-int is_user_in_channel(int uid, int cid){
+int is_user_in_channel(SockAddrIn* requester, int cid){
     int i, num_subers = c_list.list[cid].num_subers;
 
     for(i=0;i<num_subers;i++){
-        if(c_list.list[cid].subers[i] == uid)
+        if(memcmp(&c_list.list[cid].subers[i],requester,sizeof(SockAddrIn))==0)
             return i;
     }
 
     return -1;
 }
 
-int rem_user_from_channel(int uid, int cid){
+int rem_user_from_channel(SockAddrIn* requester, int cid){
     Channel *c = &(c_list.list[cid]);
     int found = 0;
     int i, num = c->num_subers;
@@ -284,12 +289,12 @@ int rem_user_from_channel(int uid, int cid){
     //go through the list of subscribers, once found just shift everyone beyond
     //this point to the left once.
     for(i=0;i<num;i++){
-        if(c->subers[i] == uid){
+        if(memcmp(&c->subers[i],requester,sizeof(SockAddrIn))==0){
             found = 1;
         }
 
         if(found && (i<num-1)){
-            c->subers[i] = c->subers[i+1];
+            memcpy(&c->subers[i],&c->subers[i+1],sizeof(SockAddrIn));
         }
     }
 
@@ -301,14 +306,14 @@ int rem_user_from_channel(int uid, int cid){
         num = c_list.num_channels;
         for(i=cid;i<num;i++){
             if(i<num-1){
-                c_list.list[i] = c_list.list[i+1];
+                replace_channel(i,i+1);
             }
         }
         c_list.num_channels--;
     }
 }
 
-int get_userid(SockAddrIn *who){
+int get_user_index(SockAddrIn *who){
     int i, max_users = u_list.num_users;
     in_port_t portkey = who->sin_port;
     uint32_t addrkey = who->sin_addr.s_addr;
@@ -333,4 +338,18 @@ int get_cid(char *name){
 
     //not found
     return -1;
+}
+
+void replace_channel(int what, int with){
+    Channel *l, *r;
+    l = &(c_list.list[what]);
+    r = &(c_list.list[with]);
+
+    strcpy(l->cname,r->cname);
+    l->num_subers = r->num_subers;
+
+    int i, len = r->num_subers;
+    for(i=0;i<len;i++){
+        memcpy(&(l->subers[i]),&(r->subers[i]),sizeof(SockAddrIn));
+    }
 }

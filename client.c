@@ -1,6 +1,7 @@
 #include <sys/socket.h>
-#include <sys/mman.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <sys/types.h>
 #include <errno.h>
 #include <unistd.h>
@@ -10,7 +11,6 @@
 #include <termios.h>
 #include <sys/select.h>
 #include "raw.h"
-#include "duckchat.h"
 #include "duckchatclient.h"
 
 #define REQ_ARG_COUNT 4
@@ -27,25 +27,28 @@ int parse_args(int argc, char** argv){
     int i, port;
 
     if(argc<REQ_ARG_COUNT){
-        printf("ERR: Missing arguments\nUSAGE: ./client hostname port username\n");
+        printf("ERR: Missing arguments\nUSAGE: ./%s hostname port username\n", argv[0]);
         return -1;
     }
 
-    for(i=0;i<argc;i++){
+    for(i=1;i<argc;i++){
         switch(i){
             case 1:
+                //arg[1] is servername
                 strcpy(sname,argv[i]);
                 break;
             case 2:
+                //arg[2] is port
                 port = atoi(argv[i]);
-                if(port>MAX_PORT){
-                    printf("ERR: Port can't be higher than %d\n",MAX_PORT);
+                if(port>MAX_PORT || port<1){
+                    printf("ERR: %d is an invalid port number.\n",port);
                     return -1;   
                 }
                 else
                     port_num = port;
                 break;
             case 3:
+                //arg[3] is username
                 if(strlen(argv[i])>USERNAME_MAX){
                     printf("ERR: Username can't be more than %d characters\n",USERNAME_MAX);
                     return -1;   
@@ -63,6 +66,8 @@ int parse_args(int argc, char** argv){
 }
 
 int get_input(char* store){
+    /* capture each keystroke so we can store it in case
+     * data from server comes in while typing input */
     char* c = store;
     read(STDIN_FILENO,c,1);
     write(STDOUT_FILENO,c,1);
@@ -91,27 +96,38 @@ void interpret_userinput(char* input, void* request, SockAddrIn* to){
     }
 }
 
-void init_duckchat_client(SockAddrIn *to, struct timeval *tv, int* offset){
+void init_duckchat_client(SockAddrIn *to, struct timeval *tv){
     ch_list.num_channels = 0;
-    *offset = 0;
 
+    //setup socket for IPv4 with UDP
     sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);    
     if(sock == -1){
         printf("Error Creating Socket");
         exit(EXIT_FAILURE);
     }
-    printf("sock: %d",sock);
 
-    memset(to, 0, sizeof(*to));                   //zero out socket address
-    to->sin_family = AF_INET;                   //use ipv4
-    to->sin_addr.s_addr = inet_addr(sname);     //set servername
-    to->sin_port = htons(port_num);             //set port
+    struct hostent *h;
+    if((h=gethostbyname(sname)) == NULL){
+        herror("Can't resolve hostname.\n");
+        exit(EXIT_FAILURE);
+    }
 
-    request = malloc(sizeof(ReqSay));           //ReqSay is the largest request we can make.
+    //initialize the addressing socket
+    memset(to, 0, sizeof(*to));                         //zero out socket address
+    to->sin_family = AF_INET;                           //use ipv4
+    to->sin_addr = *((struct in_addr *)h->h_addr);      //have to cast to pointer and de-ref.
+    to->sin_port = htons(port_num);                     //set port
+
+    /* initialize request, all requests sent to server will
+     * use this space to hold the data that is sent. Used
+     * sizeof(ReqSay) because it is the largest.*/
+    request = malloc(sizeof(ReqSay));
     if(!request){
         printf("ERR: couldn't malloc enough memory.\n");
         exit(EXIT_FAILURE);
     }
+    memset(request,0,sizeof(ReqSay));
+
 
     tv->tv_sec = TIMEOUT_SECS;
     tv->tv_usec = 0;
@@ -127,33 +143,42 @@ void run_on_exit(){
 int main (int argc, char** argv){
     SockAddrIn to;
     char rcv_buff[IN_BUFFER_SIZE], out_buff[OUT_BUFFER_SIZE];
-    int n, rv, bytes_sent, offset;
+    int n, rv, bytes_sent=0, offset=0;
     ssize_t recsize;
     socklen_t fromlen;
     fd_set readfds;
     struct timeval tv;
 
+    //checks correct usage of client and sets values
     if(parse_args(argc,argv)<0){
+        //incorrect usage, exit
         exit(EXIT_FAILURE);
     }
 
-    init_duckchat_client(&to,&tv,&offset);
-    n = sock + 1;
+    atexit(run_on_exit);
+
+    //this is all of the initializations, including the socket,
+    //timeval for select(), and malloc-ing space.
+    init_duckchat_client(&to,&tv);
+    n = sock + 1; //n is for select()
+    
     fromlen = sizeof(to);
         
+    //protocal is to send login, then join channel Common.
     request_login((ReqLogin*)request, &to);
+    printf("Connected to %s:%d with username: %s\n",sname,port_num,uname);
+    printf("Joined channel %s.\n", DEFAULT_CHANNEL);
     request_join((ReqJoin*)request, DEFAULT_CHANNEL, &to);
     
-    /* setup the socket address for the desired connection */
-    printf("Connected to %s:%d with username: %s\n",sname,port_num,uname);
-    printf("Joined channel %s.\n",DEFAULT_CHANNEL);
-    
+    //set terminal to raw mode;
     raw_mode();
 
+    //print the terminal input
     printf(">");
     fflush(stdout);
     
     while(keep_running){
+        //must setup readfds each loop to listen to STDIN_FILENO and sock
         FD_ZERO(&readfds);
         FD_SET(STDIN_FILENO, &readfds);
         FD_SET(sock, &readfds);
@@ -161,11 +186,13 @@ int main (int argc, char** argv){
         rv = select(n, &readfds, NULL, NULL, &tv);
         if(rv == -1){
             //error
+            fprintf(stdout,"select() err: %s\n", strerror(errno));
         }
         else if (rv ==0){
-            //timed out
+            //timed out nothing to do.
         }
         else{
+            //check if data from sock
             if(FD_ISSET(sock, &readfds)){
                 recsize = recvfrom(sock,(void*)rcv_buff,sizeof(rcv_buff),0,&to,&fromlen);
                 if(recsize<0){
@@ -173,25 +200,33 @@ int main (int argc, char** argv){
                     exit(EXIT_FAILURE);
                 }
 
-                //clear the terminal prompt, what is there is stored in out_buff
+                //clear the current terminal line (its saved elsewhere) 
                 int i, len = strlen(out_buff);
                 for(i=len;i>=0;i--)
                     printf("\b");
 
+
                 display_server_message((Txt*)rcv_buff);
 
-                //reprint what the user had already typed
+                //reprint partial input the user had already typed
+                //this is only a perceptional issue for user, the input was still captured
                 printf(">%s",out_buff);
                 fflush(stdout);
             }
 
+            //check if data from STDIN_FILENO
             if(FD_ISSET(STDIN_FILENO, &readfds)){
                 if(get_input(out_buff+offset)){
+                    //user finished cmd so process it and flush stdin
                     interpret_userinput(out_buff, request, &to);
                     fflush(stdin);
+                    
+                    //redisplay prompt
                     printf(">");
                     fflush(stdout);
-                    *out_buff = '\0';
+                    
+                    //reset input gatherers
+                    memset(out_buff,'\0',OUT_BUFFER_SIZE);
                     offset=0;
                 }else{
                     offset++;

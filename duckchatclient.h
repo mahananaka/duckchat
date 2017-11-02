@@ -26,7 +26,7 @@ typedef struct sockaddr_in SockAddrIn;
 #define MAX_PORT 65535
 #define SERVERNAME_MAX 255
 #define MAX_NO_CHANNELS 64
-#define CMD_LOGOUT "/logout"
+#define CMD_LOGOUT "/exit"
 #define CMD_LEAVE "/leave"
 #define CMD_JOIN "/join"
 #define CMD_LIST "/list"

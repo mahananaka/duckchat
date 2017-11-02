@@ -32,7 +32,7 @@ typedef struct _user {
 typedef struct _channel {
     char cname[CHANNEL_MAX+1];
     int num_subers;
-    unsigned int subers[MAX_USERS_PER_CHANNEL];
+    SockAddrIn subers[MAX_USERS_PER_CHANNEL];
 } Channel;
 
 typedef struct _user_list {
@@ -65,9 +65,10 @@ int sendreply(SockAddrIn* to, char* msg, int len);
 
 /* helper functions */
 int is_double_join(int uid, int cid);
-int is_user_in_channel(int uid, int cid);
-int rem_user_from_channel(int uid, int cid);
+int is_user_in_channel(SockAddrIn *requester, int cid);
+int rem_user_from_channel(SockAddrIn *requester, int cid);
 int get_userid(SockAddrIn *who);
 int get_cid(char *name);
+void replace_channel(int what, int with);
 
 #endif

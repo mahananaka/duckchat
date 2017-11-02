@@ -1,12 +1,9 @@
-#include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <errno.h>
-#include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "duckchat.h"
 #include "duckchatclient.h"
 
 void request_login(ReqLogin* rl, SockAddrIn* to){
@@ -189,22 +186,22 @@ void process_command(Req* r, char *input, SockAddrIn* to){
     char word[32];
     int len = get_nth_word(word,input,1);
 
-    if(strncmp(word,CMD_SWITCH,len)==0){
+    if(strncmp(word,CMD_SWITCH,len)==0 && len==strlen(CMD_SWITCH)){
         switch_achannel(input+len+1);
     }
-    else if(strncmp(word,CMD_JOIN,len)==0){
+    else if(strncmp(word,CMD_JOIN,len)==0 && len==strlen(CMD_JOIN)){
         request_join((ReqJoin*)r,input+len+1,to);
     }
-    else if(strncmp(word,CMD_LEAVE,len)==0){
+    else if(strncmp(word,CMD_LEAVE,len)==0 && len==strlen(CMD_LEAVE)){
         request_leave((ReqLeave*)r,input+len+1,to);
     }
-    else if(strncmp(word,CMD_LIST,len)==0){
+    else if(strncmp(word,CMD_LIST,len)==0 && len==strlen(CMD_LIST)){
         request_list((ReqList*)r,to);
     }
-    else if(strncmp(word,CMD_WHO,len)==0){
+    else if(strncmp(word,CMD_WHO,len)==0 && len==strlen(CMD_WHO)){
         request_who((ReqWho*)r,input+len+1,to);
     }
-    else if(strncmp(word,CMD_LOGOUT,len)==0){
+    else if(strncmp(word,CMD_LOGOUT,len)==0 && len==strlen(CMD_LOGOUT)){
         request_logout((ReqLogout*)r,to);
     }
     else{
