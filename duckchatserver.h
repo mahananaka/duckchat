@@ -19,8 +19,8 @@ typedef struct text_who TxtWho;
 typedef struct text_error TxtErr;
 typedef struct sockaddr_in SockAddrIn;
 
-#define MAX_NO_CHANNELS 4
-#define MAX_USERS_PER_CHANNEL 64
+#define MAX_NO_CHANNELS 32
+#define MAX_USERS_PER_CHANNEL 32
 
 typedef struct _user {
     char uname[USERNAME_MAX+1];
